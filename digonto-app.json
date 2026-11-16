@@ -1,0 +1,59 @@
+{
+  "slug": "digonto-tools",
+  "name": "Digonto Tools",
+  "version": "5.0.7",
+  "comment": "Capture, crop and coordinates, template match, background removal (Auto, Manual, AI)",
+  "entry": "digonto_tools.py",
+  "files": [
+    "digonto_tools.py",
+    "macname.py",
+    "digonto_ui.py",
+    "imagetools",
+    "cli",
+    "assets",
+    "requirements.txt",
+    "requirements-ai.txt",
+    "README.txt"
+  ],
+  "requirements": "requirements.txt",
+  "optional": [
+    {
+      "key": "ai",
+      "file": "requirements-ai.txt",
+      "question": "Also install AI background removal? (about 500 MB download)",
+      "default": true,
+      "unsupported": [
+        "Darwin-x86_64"
+      ],
+      "unsupported_note": "AI background removal is not available on Intel Macs (no builds published) - Auto and Manual modes work."
+    }
+  ],
+  "check": "import PySide6.QtWidgets, PIL, cv2, numpy",
+  "needs_tk": false,
+  "adb": true,
+  "categories": "Graphics;Utility;",
+  "keywords": "screenshot;capture;crop;template;match;background;remove;ai;adb;",
+  "wm_class": "digonto-tools",
+  "legacy": {
+    "linux": [
+      "~/.local/share/ImageTools",
+      "~/.local/bin/imagetools",
+      "~/.local/share/applications/imagetools.desktop"
+    ],
+    "darwin": [
+      "~/Library/Application Support/ImageTools/app",
+      "~/Library/Application Support/ImageTools/venv",
+      "~/Library/Application Support/ImageTools/icon.iconset",
+      "~/Applications/Image Tools.app"
+    ],
+    "windows": [
+      "%LOCALAPPDATA%/ImageTools/app",
+      "%LOCALAPPDATA%/ImageTools/venv",
+      "{programs}/Image Tools.lnk"
+    ]
+  },
+  "apt": [
+    "gnome-screenshot",
+    "x11-utils"
+  ]
+}
