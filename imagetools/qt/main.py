@@ -3,6 +3,7 @@ import os
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 
 from PySide6.QtCore import QSize, Qt, QTimer
@@ -462,7 +463,15 @@ class Main(QMainWindow):
         app = QApplication.instance()
         keep = app.quitOnLastWindowClosed()
         app.setQuitOnLastWindowClosed(False)
-        if hide:
+        # macOS: during an area/window selection the system screenshot tool takes over; a completely hidden
+        # window then leaves Digonto Tools with no window at all, and it was put away and ended. Minimising to
+        # the Dock keeps the window (and the program) alive and still out of the picture.
+        minimise = hide and sys.platform == "darwin" and mode in ("area", "window")
+        exit_log(f"capture {mode}: hide={hide} minimise={minimise}")
+        if minimise:
+            self.showMinimized()
+            QApplication.processEvents()
+        elif hide:
             self.hide()
             QApplication.processEvents()
         if wayland:
@@ -471,7 +480,7 @@ class Main(QMainWindow):
 
         def work():
             if hide:
-                time.sleep(0.4)
+                time.sleep(0.7 if minimise else 0.4)
             if mode == "full":
                 return screencap.grab_full()
             if mode == "area":
@@ -486,7 +495,10 @@ class Main(QMainWindow):
             return screencap.window_click_pick()
 
         def finish():
-            if hide:
+            exit_log(f"capture {mode} finished")
+            if minimise:
+                self.showNormal()
+            elif hide:
                 self.show()
             QTimer.singleShot(1500, lambda: app.setQuitOnLastWindowClosed(keep))
             # macOS's own screenshot tool (area / window) keeps the focus when it ends: bring Digonto Tools back
@@ -1192,13 +1204,44 @@ class Main(QMainWindow):
             adbcap.shutdown()
         except Exception:  # noqa: BLE001
             pass
+        exit_log("main window closed")
         super().closeEvent(e)
         ui.force_exit_soon()
+
+
+def exit_log(text):
+    """a small log of why the program ends (for problems that only happen on someone else's computer)"""
+    try:
+        base = os.path.expanduser("~/Library/Logs") if sys.platform == "darwin" else tempfile.gettempdir()
+        with open(os.path.join(base, "digonto-tools.log"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + text.rstrip() + "\n")
+    except OSError:
+        pass
+
+
+def _install_exit_log(app):
+    import faulthandler
+    import traceback
+    try:
+        base = os.path.expanduser("~/Library/Logs") if sys.platform == "darwin" else tempfile.gettempdir()
+        faulthandler.enable(open(os.path.join(base, "digonto-tools-crash.log"), "a"))    # noqa: SIM115
+    except Exception:                                             # noqa: BLE001
+        pass
+    app.aboutToQuit.connect(lambda: exit_log("quit requested:\n" + "".join(traceback.format_stack(limit=12))))
+    app.lastWindowClosed.connect(lambda: exit_log(f"last window closed (quit on last window: "
+                                                  f"{app.quitOnLastWindowClosed()})"))
+    old = sys.excepthook
+
+    def hook(t, v, tb):
+        exit_log("error: " + "".join(traceback.format_exception(t, v, tb)))
+        old(t, v, tb)
+    sys.excepthook = hook
 
 
 def main():
     ui.mac_app_name(APP_NAME)
     app = QApplication(sys.argv)
+    _install_exit_log(app)
     ui.setup_app(app, APP_NAME, SLUG, ui.app_icon(HERE, SLUG), theme=True)
     w = Main()
     w.show()
