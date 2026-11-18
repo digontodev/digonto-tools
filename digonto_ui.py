@@ -540,6 +540,15 @@ def file_menu(window, extra=()):
     return fm
 
 
+_HOLD = [0]
+
+
+def hold_alive(on):
+    """call hold_alive(True) before hiding every window on purpose (a screen capture) and hold_alive(False) after:
+    meanwhile the 'no window for 3 seconds = end the program' safety net waits"""
+    _HOLD[0] = max(0, _HOLD[0] + (1 if on else -1))
+
+
 def force_exit_soon(ms=300):
     """call from closeEvent: leave normally, and if anything (a thread) keeps the program alive, end it"""
     QApplication.instance().quit()
@@ -605,6 +614,9 @@ def setup_app(app, name, slug, icon, theme=False):
     state = {"seen": False, "gone": 0}
 
     def _watch():                     # safety net (macOS): no visible window for 3 seconds = the program is over, end the process
+        if _HOLD[0] > 0:              # the program hid its window on purpose (a screen capture): not over
+            state["gone"] = 0
+            return
         if any(w.isVisible() for w in app.topLevelWidgets()):
             state["seen"], state["gone"] = True, 0
         elif state["seen"]:

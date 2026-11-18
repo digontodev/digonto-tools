@@ -463,6 +463,8 @@ class Main(QMainWindow):
         app = QApplication.instance()
         keep = app.quitOnLastWindowClosed()
         app.setQuitOnLastWindowClosed(False)
+        if hasattr(ui, "hold_alive"):
+            ui.hold_alive(True)          # the window is hidden on purpose - the "no window = program over" check waits
         # macOS: during an area/window selection the system screenshot tool takes over; a completely hidden
         # window then leaves Digonto Tools with no window at all, and it was put away and ended. Minimising to
         # the Dock keeps the window (and the program) alive and still out of the picture.
@@ -496,6 +498,8 @@ class Main(QMainWindow):
 
         def finish():
             exit_log(f"capture {mode} finished")
+            if hasattr(ui, "hold_alive"):
+                QTimer.singleShot(1500, lambda: ui.hold_alive(False))
             if minimise:
                 self.showNormal()
             elif hide:
