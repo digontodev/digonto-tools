@@ -51,6 +51,16 @@ def bring_app_to_front():
             send_bool(app, objc.sel_registerName(b"activateIgnoringOtherApps:"), True)
     except Exception:                                   # noqa: BLE001 - never fail a capture because of this
         pass
+    # newer macOS lets an app come to the front by itself only right after the user used it; after a slow
+    # selection it refuses. Asking macOS to "open" our own app always works: it brings the running window back.
+    bundle = os.path.abspath(sys.executable)
+    for _ in range(3):
+        bundle = os.path.dirname(bundle)
+    if bundle.endswith(".app"):
+        try:
+            subprocess.Popen(["open", bundle], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
 
 class Doc:
     def __init__(self, path, pil):
@@ -479,7 +489,7 @@ class Main(QMainWindow):
             self.raise_()
             self.activateWindow()
             bring_app_to_front()
-            QTimer.singleShot(250, lambda: (self.raise_(), self.activateWindow(), bring_app_to_front()))
+            QTimer.singleShot(400, lambda: (self.raise_(), self.activateWindow()))
 
         def done(img):
             finish()
