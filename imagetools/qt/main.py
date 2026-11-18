@@ -457,6 +457,11 @@ class Main(QMainWindow):
     def _go(self, mode):
         wayland = screencap.kind() == "wayland"
         hide = self.hide_win.isChecked() and not wayland
+        # while the window is hidden for the capture, a small window closing by itself (a tip, a message) must
+        # not count as "the last window was closed" - that ended Digonto Tools after 4-5 seconds
+        app = QApplication.instance()
+        keep = app.quitOnLastWindowClosed()
+        app.setQuitOnLastWindowClosed(False)
         if hide:
             self.hide()
             QApplication.processEvents()
@@ -483,6 +488,7 @@ class Main(QMainWindow):
         def finish():
             if hide:
                 self.show()
+            QTimer.singleShot(1500, lambda: app.setQuitOnLastWindowClosed(keep))
             # macOS's own screenshot tool (area / window) keeps the focus when it ends: bring Digonto Tools back
             # to the front, so the new picture is seen at once (also when the window was not hidden)
             self.showNormal() if self.isMinimized() else None
