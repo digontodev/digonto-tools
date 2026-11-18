@@ -33,6 +33,25 @@ TOOLS = (("screen", "Screen capture", "Take a screenshot of this computer"),
          ("setup", "Setup", "Components, folders and updates"))
 
 
+
+def bring_app_to_front():
+    """make this program the active one again (macOS: after the system screenshot tool had the focus)"""
+    if sys.platform != "darwin":
+        return
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.sel_registerName.restype = ctypes.c_void_p
+        send = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(("objc_msgSend", objc))
+        send_bool = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool)(("objc_msgSend", objc))
+        app = send(objc.objc_getClass(b"NSApplication"), objc.sel_registerName(b"sharedApplication"))
+        if app:
+            send_bool(app, objc.sel_registerName(b"activateIgnoringOtherApps:"), True)
+    except Exception:                                   # noqa: BLE001 - never fail a capture because of this
+        pass
+
 class Doc:
     def __init__(self, path, pil):
         self.path, self.pil = path, pil
@@ -454,8 +473,13 @@ class Main(QMainWindow):
         def finish():
             if hide:
                 self.show()
-                self.raise_()
-                self.activateWindow()
+            # macOS's own screenshot tool (area / window) keeps the focus when it ends: bring Digonto Tools back
+            # to the front, so the new picture is seen at once (also when the window was not hidden)
+            self.showNormal() if self.isMinimized() else None
+            self.raise_()
+            self.activateWindow()
+            bring_app_to_front()
+            QTimer.singleShot(250, lambda: (self.raise_(), self.activateWindow(), bring_app_to_front()))
 
         def done(img):
             finish()
