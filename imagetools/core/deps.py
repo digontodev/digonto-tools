@@ -27,7 +27,11 @@ PACKAGES = [
 
 
 def ai_supported():
-    """The AI engine's makers publish no builds for Intel Macs any more."""
+    """Digonto Studio carries its own AI helper (also for Intel and Apple-chip Macs). Without it, pip installs
+    rembg - whose engine has no new builds for Intel Macs."""
+    from . import aihelper
+    if aihelper.available():
+        return True
     return not (sys.platform == "darwin" and platform.machine() == "x86_64")
 
 
@@ -39,6 +43,11 @@ def status():
             ok = True
         except Exception:
             ok = False
+        if mod == "rembg" and not ok:
+            from . import aihelper
+            if aihelper.available():
+                ok = aihelper.enabled()
+                pipname, why = "AI helper", "AI background removal (offline, included in Digonto Studio)"
         out.append((mod, pipname, required, why, ok))
     return out
 
@@ -54,6 +63,10 @@ def _run(cmd, log):
 def install_locked(ai, log):
     """Install the core set, plus the AI set when ai=True. Returns True on success."""
     files = [CORE_REQ] + ([AI_REQ] if ai else [])
+    if ai:
+        from . import aihelper
+        if aihelper.available():                     # Studio: switch on the helper from the install folder
+            return aihelper.enable(log)
     if os.environ.get("DIGONTO_STANDALONE") == "1":
         log("This is the standalone (offline) edition: everything it can use is already inside. "
             "AI background removal is not included; Auto and Manual background removal work.")

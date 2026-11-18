@@ -34,12 +34,29 @@ def click_remove(img_bgra, points, tolerance=30):
     return out
 
 
-def ai_available():
+def _rembg_here():
     try:
         import rembg  # noqa: F401
         return True
     except Exception:
         return False
+
+
+def ai_available():
+    """rembg in this Python (developer runs), or the offline AI helper of Digonto Studio, switched on"""
+    if _rembg_here():
+        return True
+    from . import aihelper
+    return aihelper.enabled()
+
+
+def models_for_ui():
+    """the AI models that can be used here (Studio only carries some of them)"""
+    if _rembg_here():
+        return list(AI_MODELS)
+    from . import aihelper
+    have = set(aihelper.models())
+    return [m for m in AI_MODELS if m[0] in have] or list(AI_MODELS[:1])
 
 
 AI_MODELS = [
@@ -64,13 +81,17 @@ def ai_remove_bg(img_bgr, edge_threshold=200, erode=2, model="u2net", soft=False
     Small pictures (icons) are enlarged before the AI sees them - the AI works on a ~320 px grid, so a 60 px icon
     would otherwise get a blurry mask - and the mask is shrunk back afterwards.
     soft=False: hard edge (best for templates).  soft=True: smooth edge (best for photos)."""
-    from rembg import remove
     h, w = img_bgr.shape[:2]
     big = max(h, w)
     k = 1.0 if big >= 640 else min(8.0, 640.0 / big)
     work = img_bgr if k == 1.0 else cv2.resize(img_bgr, (round(w * k), round(h * k)), interpolation=cv2.INTER_CUBIC)
     ok, enc = cv2.imencode(".png", work)
-    mask_bytes = remove(enc.tobytes(), only_mask=True, post_process_mask=not soft, session=_session(model))
+    if _rembg_here():
+        from rembg import remove
+        mask_bytes = remove(enc.tobytes(), only_mask=True, post_process_mask=not soft, session=_session(model))
+    else:
+        from . import aihelper
+        mask_bytes = aihelper.mask(enc.tobytes(), model, soft)
     mask = cv2.imdecode(np.frombuffer(mask_bytes, np.uint8), cv2.IMREAD_GRAYSCALE)
     if mask.shape[:2] != (h, w):
         mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_AREA)

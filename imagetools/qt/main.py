@@ -863,8 +863,10 @@ class Main(QMainWindow):
         av = QVBoxLayout(self.ai_box)
         av.setContentsMargins(0, 0, 0, 0)
         self.model = QComboBox()
-        self.model.addItems([l for _k, l in bgremove.AI_MODELS])
-        self.model.setCurrentIndex(1)
+        self._ai_models = bgremove.models_for_ui()
+        self.model.addItems([l for _k, l in self._ai_models])
+        keys = [k for k, _l in self._ai_models]
+        self.model.setCurrentIndex(keys.index("isnet-general-use") if "isnet-general-use" in keys else 0)
         av.addWidget(QLabel("AI model"))
         av.addWidget(self.model)
         self.soft = QCheckBox("Soft edge (photos)")
@@ -922,13 +924,13 @@ class Main(QMainWindow):
             self._bg_show(d, bgremove.grow_mask(res, self.grow.value()))
             return
         if not bgremove.ai_available():
-            QMessageBox.warning(self, "AI not installed", "The AI engine (rembg) is not installed.\nInstall it on the Setup page (Install AI background removal).")
+            QMessageBox.warning(self, "AI not installed", "AI background removal is not switched on yet.\nOn the Setup page press \"Install AI background removal\" (it takes a few seconds, nothing is downloaded in Digonto Studio).")
             return
         self.bg_apply_btn.setEnabled(False)
-        self.status("AI is working… (the first run of each model downloads it, 5-170 MB)", 0)
+        self.status("AI is working… (the first picture with a model takes a few seconds longer)", 0)
         src, e, er = d.bg_src, self.edge.value(), self.erode.value()
         label = self.model.currentText()
-        mkey = next((k for k, l in bgremove.AI_MODELS if l == label), "u2net")
+        mkey = next((k for k, l in self._ai_models if l == label), "u2net")
         soft, big_ = self.soft.isChecked(), self.largest.isChecked()
 
         def done(res):
