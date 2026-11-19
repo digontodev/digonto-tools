@@ -1,7 +1,7 @@
 {
   "slug": "digonto-tools",
   "name": "Digonto Tools",
-  "version": "5.0.7",
+  "version": "5.0.9",
   "comment": "Capture, crop and coordinates, template match, background removal (Auto, Manual, AI)",
   "entry": "digonto_tools.py",
   "files": [

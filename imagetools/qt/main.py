@@ -3,6 +3,7 @@ import os
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 
 from PySide6.QtCore import QSize, Qt, QTimer
@@ -32,6 +33,35 @@ TOOLS = (("screen", "Screen capture", "Take a screenshot of this computer"),
          ("bg", "Remove background", "Make the background transparent"),
          ("setup", "Setup", "Components, folders and updates"))
 
+
+
+def bring_app_to_front():
+    """make this program the active one again (macOS: after the system screenshot tool had the focus)"""
+    if sys.platform != "darwin":
+        return
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.sel_registerName.restype = ctypes.c_void_p
+        send = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(("objc_msgSend", objc))
+        send_bool = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool)(("objc_msgSend", objc))
+        app = send(objc.objc_getClass(b"NSApplication"), objc.sel_registerName(b"sharedApplication"))
+        if app:
+            send_bool(app, objc.sel_registerName(b"activateIgnoringOtherApps:"), True)
+    except Exception:                                   # noqa: BLE001 - never fail a capture because of this
+        pass
+    # newer macOS lets an app come to the front by itself only right after the user used it; after a slow
+    # selection it refuses. Asking macOS to "open" our own app always works: it brings the running window back.
+    bundle = os.path.abspath(sys.executable)
+    for _ in range(3):
+        bundle = os.path.dirname(bundle)
+    if bundle.endswith(".app"):
+        try:
+            subprocess.Popen(["open", bundle], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
 
 class Doc:
     def __init__(self, path, pil):
@@ -86,14 +116,30 @@ def big(text, fn, primary=False):
 
 class ToolsColumn(QWidget):
     """the narrow column of tool buttons on the left"""
-    def __init__(self, on_pick):
+    def __init__(self, on_pick, file_items=()):
         super().__init__()
         self.setFixedWidth(58)
-        self.setStyleSheet("ToolsColumn{background:#F3EFF6;} QPushButton{border:1px solid transparent; border-radius:5px; background:transparent;}"
-                           "QPushButton:hover{background:#EFE7F5;} QPushButton:checked{background:#FBDCE5; border:1px solid #C2395C;}")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet("ToolsColumn{background:white; border-right:1px solid #E7E1F0;}"
+                           " QPushButton{border:1px solid transparent; border-radius:10px; background:transparent;}"
+                           "QPushButton:hover{background:#F1EAF8;} QPushButton:checked{background:#FCE4EA; border:1px solid transparent;}")
         v = QVBoxLayout(self)
-        v.setContentsMargins(8, 8, 8, 8)
+        v.setContentsMargins(8, 10, 8, 10)
         v.setSpacing(6)
+        # the Digonto file icons first (same place as in every Digonto program)
+        for kind, tip, fn in file_items:
+            fb = QPushButton()
+            fb.setIcon(ui.line_icon(kind, 22))
+            fb.setIconSize(QSize(22, 22))
+            fb.setFixedSize(42, 40)
+            fb.setToolTip(tip)
+            fb.clicked.connect(lambda _=False, f=fn: f())
+            v.addWidget(fb)
+        if file_items:
+            line = QFrame()
+            line.setFixedHeight(1)
+            line.setStyleSheet("background:#E7E1F0;")
+            v.addWidget(line)
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
         self.buttons = {}
@@ -102,7 +148,7 @@ class ToolsColumn(QWidget):
                 v.addStretch(1)
             b = QPushButton()
             b.setCheckable(True)
-            b.setIcon(icon(key, 28))
+            b.setIcon(ui.line_icon("settings", 24) if key == "setup" and hasattr(ui, "line_icon") else icon(key, 28))
             b.setIconSize(QSize(28, 28))
             b.setFixedSize(42, 40)
             b.setToolTip(f"{title}\n{tip}")
@@ -144,8 +190,17 @@ class Main(QMainWindow):
         self.tabs.tabCloseRequested.connect(self.close_doc)
 
         self.setup_page = SetupPage(self)
+        # the Digonto start screen while no picture is open, the picture view after that
+        self.start = ui.StartScreen(
+            "Screenshots, phone screenshots, crop, check and cut out pictures",
+            [("Take a screenshot", "images", lambda: (self.pick_tool("screen"), self._go("full")), True),
+             ("Open picture …", "open", self.open_dialog, False)],
+            "or drop a picture here", lambda: ui.recent_paths(SLUG), self.open_path)
+        self.view_stack = QStackedWidget()
+        self.view_stack.addWidget(self.start)
+        self.view_stack.addWidget(self.view)
         self.pages = QStackedWidget()
-        self.pages.addWidget(self.view)
+        self.pages.addWidget(self.view_stack)
         self.pages.addWidget(self.setup_page)
 
         col = QWidget()
@@ -155,7 +210,8 @@ class Main(QMainWindow):
         cv.addWidget(self.tabs)
         cv.addWidget(self.pages, 1)
 
-        self.tools = ToolsColumn(self.pick_tool)
+        self.tools = ToolsColumn(self.pick_tool, [("open", "Open picture (Ctrl+O)", self.open_dialog),
+                                                  ("save", "Save a copy (Ctrl+Shift+S)", self.save_copy)])
         body = QWidget()
         bl = QHBoxLayout(body)
         bl.setContentsMargins(0, 0, 0, 0)
@@ -221,17 +277,13 @@ class Main(QMainWindow):
         self._open_folder(self.dirs["workdir"])
 
     def _open_folder(self, path):
-        if not path or not os.path.isdir(path):
+        if not path:
             return
         try:
-            if sys.platform == "win32":
-                os.startfile(path)  # noqa: S606
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", path])
-            else:
-                subprocess.Popen(["xdg-open", path])
-        except Exception:  # noqa: BLE001
-            pass
+            os.makedirs(path, exist_ok=True)
+            ui.open_external(path)
+        except Exception as e:  # noqa: BLE001
+            self.status(f"Could not open the folder: {e}")
 
     def status(self, text, ms=6000):
         self.statusBar().showMessage(text, ms)
@@ -428,7 +480,22 @@ class Main(QMainWindow):
     def _go(self, mode):
         wayland = screencap.kind() == "wayland"
         hide = self.hide_win.isChecked() and not wayland
-        if hide:
+        # while the window is hidden for the capture, a small window closing by itself (a tip, a message) must
+        # not count as "the last window was closed" - that ended Digonto Tools after 4-5 seconds
+        app = QApplication.instance()
+        keep = app.quitOnLastWindowClosed()
+        app.setQuitOnLastWindowClosed(False)
+        if hasattr(ui, "hold_alive"):
+            ui.hold_alive(True)          # the window is hidden on purpose - the "no window = program over" check waits
+        # macOS: during an area/window selection the system screenshot tool takes over; a completely hidden
+        # window then leaves Digonto Tools with no window at all, and it was put away and ended. Minimising to
+        # the Dock keeps the window (and the program) alive and still out of the picture.
+        minimise = hide and sys.platform == "darwin" and mode in ("area", "window")
+        exit_log(f"capture {mode}: hide={hide} minimise={minimise}")
+        if minimise:
+            self.showMinimized()
+            QApplication.processEvents()
+        elif hide:
             self.hide()
             QApplication.processEvents()
         if wayland:
@@ -437,7 +504,7 @@ class Main(QMainWindow):
 
         def work():
             if hide:
-                time.sleep(0.4)
+                time.sleep(0.7 if minimise else 0.4)
             if mode == "full":
                 return screencap.grab_full()
             if mode == "area":
@@ -452,10 +519,21 @@ class Main(QMainWindow):
             return screencap.window_click_pick()
 
         def finish():
-            if hide:
+            exit_log(f"capture {mode} finished")
+            if hasattr(ui, "hold_alive"):
+                QTimer.singleShot(1500, lambda: ui.hold_alive(False))
+            if minimise:
+                self.showNormal()
+            elif hide:
                 self.show()
-                self.raise_()
-                self.activateWindow()
+            QTimer.singleShot(1500, lambda: app.setQuitOnLastWindowClosed(keep))
+            # macOS's own screenshot tool (area / window) keeps the focus when it ends: bring Digonto Tools back
+            # to the front, so the new picture is seen at once (also when the window was not hidden)
+            self.showNormal() if self.isMinimized() else None
+            self.raise_()
+            self.activateWindow()
+            bring_app_to_front()
+            QTimer.singleShot(400, lambda: (self.raise_(), self.activateWindow()))
 
         def done(img):
             finish()
@@ -823,8 +901,10 @@ class Main(QMainWindow):
         av = QVBoxLayout(self.ai_box)
         av.setContentsMargins(0, 0, 0, 0)
         self.model = QComboBox()
-        self.model.addItems([l for _k, l in bgremove.AI_MODELS])
-        self.model.setCurrentIndex(1)
+        self._ai_models = bgremove.models_for_ui()
+        self.model.addItems([l for _k, l in self._ai_models])
+        keys = [k for k, _l in self._ai_models]
+        self.model.setCurrentIndex(keys.index("u2net") if "u2net" in keys else 0)   # keeps every person in a photo
         av.addWidget(QLabel("AI model"))
         av.addWidget(self.model)
         self.soft = QCheckBox("Soft edge (photos)")
@@ -882,13 +962,13 @@ class Main(QMainWindow):
             self._bg_show(d, bgremove.grow_mask(res, self.grow.value()))
             return
         if not bgremove.ai_available():
-            QMessageBox.warning(self, "AI not installed", "The AI engine (rembg) is not installed.\nInstall it on the Setup page (Install AI background removal).")
+            QMessageBox.warning(self, "AI not installed", "AI background removal is not switched on yet.\nOn the Setup page press \"Install AI background removal\" (it takes a few seconds, nothing is downloaded in Digonto Studio).")
             return
         self.bg_apply_btn.setEnabled(False)
-        self.status("AI is working… (the first run of each model downloads it, 5-170 MB)", 0)
+        self.status("AI is working… (the first picture with a model takes a few seconds longer)", 0)
         src, e, er = d.bg_src, self.edge.value(), self.erode.value()
         label = self.model.currentText()
-        mkey = next((k for k, l in bgremove.AI_MODELS if l == label), "u2net")
+        mkey = next((k for k, l in self._ai_models if l == label), "u2net")
         soft, big_ = self.soft.isChecked(), self.largest.isChecked()
 
         def done(res):
@@ -1029,6 +1109,8 @@ class Main(QMainWindow):
         self.tabs.setTabToolTip(i, path)
         self.tabs.setCurrentIndex(i)
         self.current_screenshot = path
+        ui.add_recent(SLUG, path)
+        self.view_stack.setCurrentIndex(1)
 
     def close_doc(self, i):
         if 0 <= i < len(self.docs):
@@ -1039,6 +1121,8 @@ class Main(QMainWindow):
                 self.view.qimg = None
                 self.info_lbl.setText("No picture open.")
                 self.view.update()
+                self.start.refresh()
+                self.view_stack.setCurrentIndex(0)
 
     def _tab_changed(self, i):
         d = self.cur()
@@ -1138,8 +1222,14 @@ class Main(QMainWindow):
     def dragEnterEvent(self, e):
         if e.mimeData().hasUrls():
             e.acceptProposedAction()
+            if self.view_stack.currentIndex() == 0:
+                self.start.set_dropping(True)
+
+    def dragLeaveEvent(self, e):
+        self.start.set_dropping(False)
 
     def dropEvent(self, e):
+        self.start.set_dropping(False)
         for u in e.mimeData().urls():
             if u.isLocalFile():
                 self.open_path(u.toLocalFile())
@@ -1150,13 +1240,44 @@ class Main(QMainWindow):
             adbcap.shutdown()
         except Exception:  # noqa: BLE001
             pass
+        exit_log("main window closed")
         super().closeEvent(e)
         ui.force_exit_soon()
+
+
+def exit_log(text):
+    """a small log of why the program ends (for problems that only happen on someone else's computer)"""
+    try:
+        base = os.path.expanduser("~/Library/Logs") if sys.platform == "darwin" else tempfile.gettempdir()
+        with open(os.path.join(base, "digonto-tools.log"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + text.rstrip() + "\n")
+    except OSError:
+        pass
+
+
+def _install_exit_log(app):
+    import faulthandler
+    import traceback
+    try:
+        base = os.path.expanduser("~/Library/Logs") if sys.platform == "darwin" else tempfile.gettempdir()
+        faulthandler.enable(open(os.path.join(base, "digonto-tools-crash.log"), "a"))    # noqa: SIM115
+    except Exception:                                             # noqa: BLE001
+        pass
+    app.aboutToQuit.connect(lambda: exit_log("quit requested:\n" + "".join(traceback.format_stack(limit=12))))
+    app.lastWindowClosed.connect(lambda: exit_log(f"last window closed (quit on last window: "
+                                                  f"{app.quitOnLastWindowClosed()})"))
+    old = sys.excepthook
+
+    def hook(t, v, tb):
+        exit_log("error: " + "".join(traceback.format_exception(t, v, tb)))
+        old(t, v, tb)
+    sys.excepthook = hook
 
 
 def main():
     ui.mac_app_name(APP_NAME)
     app = QApplication(sys.argv)
+    _install_exit_log(app)
     ui.setup_app(app, APP_NAME, SLUG, ui.app_icon(HERE, SLUG), theme=True)
     w = Main()
     w.show()
