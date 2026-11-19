@@ -116,14 +116,30 @@ def big(text, fn, primary=False):
 
 class ToolsColumn(QWidget):
     """the narrow column of tool buttons on the left"""
-    def __init__(self, on_pick):
+    def __init__(self, on_pick, file_items=()):
         super().__init__()
         self.setFixedWidth(58)
-        self.setStyleSheet("ToolsColumn{background:#F3EFF6;} QPushButton{border:1px solid transparent; border-radius:5px; background:transparent;}"
-                           "QPushButton:hover{background:#EFE7F5;} QPushButton:checked{background:#FBDCE5; border:1px solid #C2395C;}")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet("ToolsColumn{background:white; border-right:1px solid #E7E1F0;}"
+                           " QPushButton{border:1px solid transparent; border-radius:10px; background:transparent;}"
+                           "QPushButton:hover{background:#F1EAF8;} QPushButton:checked{background:#FCE4EA; border:1px solid transparent;}")
         v = QVBoxLayout(self)
-        v.setContentsMargins(8, 8, 8, 8)
+        v.setContentsMargins(8, 10, 8, 10)
         v.setSpacing(6)
+        # the Digonto file icons first (same place as in every Digonto program)
+        for kind, tip, fn in file_items:
+            fb = QPushButton()
+            fb.setIcon(ui.line_icon(kind, 22))
+            fb.setIconSize(QSize(22, 22))
+            fb.setFixedSize(42, 40)
+            fb.setToolTip(tip)
+            fb.clicked.connect(lambda _=False, f=fn: f())
+            v.addWidget(fb)
+        if file_items:
+            line = QFrame()
+            line.setFixedHeight(1)
+            line.setStyleSheet("background:#E7E1F0;")
+            v.addWidget(line)
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
         self.buttons = {}
@@ -132,7 +148,7 @@ class ToolsColumn(QWidget):
                 v.addStretch(1)
             b = QPushButton()
             b.setCheckable(True)
-            b.setIcon(icon(key, 28))
+            b.setIcon(ui.line_icon("settings", 24) if key == "setup" and hasattr(ui, "line_icon") else icon(key, 28))
             b.setIconSize(QSize(28, 28))
             b.setFixedSize(42, 40)
             b.setToolTip(f"{title}\n{tip}")
@@ -185,7 +201,8 @@ class Main(QMainWindow):
         cv.addWidget(self.tabs)
         cv.addWidget(self.pages, 1)
 
-        self.tools = ToolsColumn(self.pick_tool)
+        self.tools = ToolsColumn(self.pick_tool, [("open", "Open picture (Ctrl+O)", self.open_dialog),
+                                                  ("save", "Save a copy (Ctrl+Shift+S)", self.save_copy)])
         body = QWidget()
         bl = QHBoxLayout(body)
         bl.setContentsMargins(0, 0, 0, 0)
