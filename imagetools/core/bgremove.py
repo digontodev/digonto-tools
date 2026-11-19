@@ -60,8 +60,8 @@ def models_for_ui():
 
 
 AI_MODELS = [
-    ("u2net", "u2net - same as the first version"),
-    ("isnet-general-use", "isnet - more accurate edges (recommended)"),
+    ("u2net", "u2net - photos and people (recommended)"),
+    ("isnet-general-use", "isnet - one object, sharpest edges"),
     ("birefnet-general-lite", "birefnet lite - most accurate, slower"),
     ("u2netp", "u2netp - fast and small"),
 ]

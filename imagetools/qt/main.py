@@ -882,7 +882,7 @@ class Main(QMainWindow):
         self._ai_models = bgremove.models_for_ui()
         self.model.addItems([l for _k, l in self._ai_models])
         keys = [k for k, _l in self._ai_models]
-        self.model.setCurrentIndex(keys.index("isnet-general-use") if "isnet-general-use" in keys else 0)
+        self.model.setCurrentIndex(keys.index("u2net") if "u2net" in keys else 0)   # keeps every person in a photo
         av.addWidget(QLabel("AI model"))
         av.addWidget(self.model)
         self.soft = QCheckBox("Soft edge (photos)")
