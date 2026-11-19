@@ -190,8 +190,17 @@ class Main(QMainWindow):
         self.tabs.tabCloseRequested.connect(self.close_doc)
 
         self.setup_page = SetupPage(self)
+        # the Digonto start screen while no picture is open, the picture view after that
+        self.start = ui.StartScreen(
+            "Screenshots, phone screenshots, crop, check and cut out pictures",
+            [("Take a screenshot", "images", lambda: (self.pick_tool("screen"), self._go("full")), True),
+             ("Open picture …", "open", self.open_dialog, False)],
+            "or drop a picture here", lambda: ui.recent_paths(SLUG), self.open_path)
+        self.view_stack = QStackedWidget()
+        self.view_stack.addWidget(self.start)
+        self.view_stack.addWidget(self.view)
         self.pages = QStackedWidget()
-        self.pages.addWidget(self.view)
+        self.pages.addWidget(self.view_stack)
         self.pages.addWidget(self.setup_page)
 
         col = QWidget()
@@ -268,17 +277,13 @@ class Main(QMainWindow):
         self._open_folder(self.dirs["workdir"])
 
     def _open_folder(self, path):
-        if not path or not os.path.isdir(path):
+        if not path:
             return
         try:
-            if sys.platform == "win32":
-                os.startfile(path)  # noqa: S606
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", path])
-            else:
-                subprocess.Popen(["xdg-open", path])
-        except Exception:  # noqa: BLE001
-            pass
+            os.makedirs(path, exist_ok=True)
+            ui.open_external(path)
+        except Exception as e:  # noqa: BLE001
+            self.status(f"Could not open the folder: {e}")
 
     def status(self, text, ms=6000):
         self.statusBar().showMessage(text, ms)
@@ -1104,6 +1109,8 @@ class Main(QMainWindow):
         self.tabs.setTabToolTip(i, path)
         self.tabs.setCurrentIndex(i)
         self.current_screenshot = path
+        ui.add_recent(SLUG, path)
+        self.view_stack.setCurrentIndex(1)
 
     def close_doc(self, i):
         if 0 <= i < len(self.docs):
@@ -1114,6 +1121,8 @@ class Main(QMainWindow):
                 self.view.qimg = None
                 self.info_lbl.setText("No picture open.")
                 self.view.update()
+                self.start.refresh()
+                self.view_stack.setCurrentIndex(0)
 
     def _tab_changed(self, i):
         d = self.cur()
@@ -1213,8 +1222,14 @@ class Main(QMainWindow):
     def dragEnterEvent(self, e):
         if e.mimeData().hasUrls():
             e.acceptProposedAction()
+            if self.view_stack.currentIndex() == 0:
+                self.start.set_dropping(True)
+
+    def dragLeaveEvent(self, e):
+        self.start.set_dropping(False)
 
     def dropEvent(self, e):
+        self.start.set_dropping(False)
         for u in e.mimeData().urls():
             if u.isLocalFile():
                 self.open_path(u.toLocalFile())
